@@ -1,645 +1,516 @@
-﻿#include	<iostream>
-#include 	<fstream>
-#include	<string>
-#include	<cstdlib>
-#include	"List.h"
-#include	"Student.h"
-
-
-
-bool CreateStuList(const char *, List *);
-bool DeleteStudent(List *, char *);
-bool PrintList(List, int); 
-bool InsertExamResult(const char *, List *);
-bool PrintStatistic(List);
-bool FilterStudent(List, List *, char *, int, int) ;
-bool UpdateIDandPhone(List *);
-bool FindPotentialFirstClass(List, List *, char *);
-int  menu();
-
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <cstring>
+#include <iomanip>
+#include <cctype>
+#include "List.h"
+#include "Student.h"
 
 using namespace std;
 
+bool CreateStuList(const char* filename, List* list);
+bool DeleteStudent(List* list, const char* id);
+bool PrintList(List& list, int outputMethod);
+bool InsertExamResult(const char* filename, List* list);
+bool PrintStatistic(List& list);
+bool FilterStudent(List& source, List* destination, const char* course, int year, int totalCredit);
+bool UpdateIDandPhone(List* list);
+bool FindPotentialFirstClass(List& source, List* destination, const char* course);
+int menu();
 
-bool CreateStuList(const char* filename, List* list) {
-
-    ifstream inFile(filename);
-    Student* stu = new Student();
-    Student* check = new Student();
-    string line;
-    bool duplicate = true;
-    //check the file can successfully open or not?
-    if (!inFile.is_open()) {
-        cout << "Error opening the file !!!" << filename << endl;
-        return false;
-    }
-    // read file from student.txt
-    while (!inFile.eof()) {
-        //read the word in file until need
-        inFile >> line >> line >> line >> stu->id;
-        inFile >> line >> line;
-        inFile.ignore();
-        inFile.getline(stu->name, 30);
-        inFile >> line >> line >> stu->course;
-        inFile >> line >> line >> line >> stu->phone_no;
-
-        //find duplicate or not?
-        for (int i = 1; i <= list->size(); i++) {
-            list->get(i, *check);
-            if (check->compareID(*stu)) {
-                duplicate = false;
-                cout << stu->id << " already exists!!!" << endl;
-                break;
-            }
-        }
-
-        //check the length of student id 
-        if (strlen(stu->id) == 0) {
-            break;
-        }
-
-        if (duplicate) {
-            list->insert(*stu);
-        }
-
-        //check list empty or not?
-        if (list->empty()) {
-            cout << "The file is still empty now!!!" << endl;
-            return false;
-        }
-    }
-
-    inFile.close();
-    delete stu;
-    delete check;
-    return true;
+template <size_t N>
+void copyText(char (&destination)[N], const string& source) {
+    strncpy(destination, source.c_str(), N - 1);
+    destination[N - 1] = '\0';
 }
 
-bool DeleteStudent(List* list, char* id) {
+string trim(const string& value) {
+    size_t first = value.find_first_not_of(" \t\r\n");
+    if (first == string::npos) return "";
+    size_t last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
 
-    Node* cur_location = list->head;
-   
-    int position = 1;
-    //check the node is empty or not ?
-    if (cur_location == NULL) {
-        cout << "This list is NULL not any value exists" << endl;
+string valueAfterEquals(const string& line) {
+    size_t position = line.find('=');
+    return position == string::npos ? "" : trim(line.substr(position + 1));
+}
+
+Node* findStudentNode(List* list, const char* id) {
+    for (Node* current = list->head; current != NULL; current = current->next) {
+        if (strcmp(current->item.id, id) == 0) return current;
+    }
+    return NULL;
+}
+
+int enrollmentYear(const char* id) {
+    size_t length = strlen(id);
+    for (size_t i = 0; i + 1 < length; ++i) {
+        if (isdigit(static_cast<unsigned char>(id[i])) && isdigit(static_cast<unsigned char>(id[i + 1]))) {
+            return 2000 + (id[i] - '0') * 10 + (id[i + 1] - '0');
+        }
+    }
+    return 0;
+}
+
+int semesterCredits(const Exam& exam) {
+    int credits = 0;
+    for (int i = 0; i < exam.numOfSubjects; ++i) {
+        credits += exam.sub[i].credit_hours;
+    }
+    return credits;
+}
+
+bool CreateStuList(const char* filename, List* list) {
+    ifstream input(filename);
+    if (!input.is_open()) {
+        cout << "Error opening file: " << filename << endl;
         return false;
     }
-    //find the id and remove it
-    while (cur_location != NULL) {
-        if (strcmp(cur_location -> item.id, id) == 0) {
-            list->remove(position);
-            return true;
+
+    int inserted = 0;
+    string idLine, nameLine, courseLine, phoneLine;
+
+    while (getline(input, idLine)) {
+        if (trim(idLine).empty()) continue;
+
+        if (!getline(input, nameLine) || !getline(input, courseLine) || !getline(input, phoneLine)) {
+            cout << "Invalid student record format.\n";
+            return false;
         }
-        position++;
-        //point to next node
-        cur_location = cur_location -> next;
-        
-        
+
+        Student student;
+        string id = valueAfterEquals(idLine);
+        string name = valueAfterEquals(nameLine);
+        string course = valueAfterEquals(courseLine);
+        string phone = valueAfterEquals(phoneLine);
+
+        if (id.empty() || name.empty() || course.empty() || phone.empty()) {
+            cout << "Skipped an incomplete student record.\n";
+            continue;
+        }
+
+        if (id.length() >= sizeof(student.id) || name.length() >= sizeof(student.name) ||
+            course.length() >= sizeof(student.course) || phone.length() >= sizeof(student.phone_no)) {
+            cout << "Skipped " << id << ": one or more fields exceed the allowed size.\n";
+            continue;
+        }
+
+        copyText(student.id, id);
+        copyText(student.name, name);
+        copyText(student.course, course);
+        copyText(student.phone_no, phone);
+
+        if (findStudentNode(list, student.id) != NULL) {
+            cout << student.id << " already exists; skipped.\n";
+            continue;
+        }
+
+        list->insert(student);
+        ++inserted;
     }
 
-   
+    cout << inserted << " student record(s) added.\n";
+    return inserted > 0;
+}
+
+bool DeleteStudent(List* list, const char* id) {
+    if (list == NULL || list->empty()) {
+        cout << "The student list is empty.\n";
+        return false;
+    }
+
+    Node* previous = NULL;
+    Node* current = list->head;
+
+    while (current != NULL) {
+        if (strcmp(current->item.id, id) == 0) {
+            if (previous == NULL) list->head = current->next;
+            else previous->next = current->next;
+
+            delete current;
+            --list->count;
+            cout << "Student deleted successfully.\n";
+            return true;
+        }
+        previous = current;
+        current = current->next;
+    }
+
+    cout << "Student ID not found.\n";
     return false;
 }
 
-bool PrintList(List list, int n) {
-
-    Student* stu = new Student();
-    //check list is empty or not?
+bool PrintList(List& list, int outputMethod) {
     if (list.empty()) {
-        cout << "The list is still in empty now !!! " << endl;
+        cout << "The student list is empty.\n";
         return false;
     }
-    else {
-        //select 1 perform print screen
-        if (n == 1) {
-            //print to screen
-            for (int i = 1; i <= list.size(); i++) {
-                cout << "******************************************************STUDENT " << i << "*********************************************************" << endl;
-                list.get(i, *stu);  
-                stu->print(cout);
 
-                cout << "--------------------------------------------------PAST EXAM RESULT:-----------------------------------------------------" << endl;;
-                //print exam result to screen
-                if (stu->exam_cnt != 0) {
-                    for (int j = 0; j < stu->exam_cnt; j++) {
-                        stu->exam[j].print(cout);
-                    }
-                }
-                else {
-                    cout << "This student hasn't taken any exam yet !!!" << endl;;
-                }
-                cout << "******************************************************STUDENT " << i << "*********************************************************" << endl;;
-            }
-            delete stu;
-            return true;
+    ostream* output = &cout;
+    ofstream file;
+
+    if (outputMethod == 2) {
+        file.open("student_result.txt");
+        if (!file.is_open()) {
+            cout << "Unable to create student_result.txt.\n";
+            return false;
         }
-        else if (n == 2) {
-            //select 2 perform print file
+        output = &file;
+    } else if (outputMethod != 1) {
+        cout << "Invalid print method. Enter 1 for screen or 2 for file.\n";
+        return false;
+    }
 
-            ofstream outFile("student_result.txt");
+    int number = 1;
+    for (Node* current = list.head; current != NULL; current = current->next, ++number) {
+        Student& student = current->item;
+        *output << "\n****************************************************** STUDENT " << number
+                << " ******************************************************\n";
+        student.print(*output);
+        *output << "\n------------------------------- PAST EXAM RESULTS -------------------------------\n";
 
-            if (!outFile.is_open()) {
-                cout << "Error to opening  the file " << endl;
-                return false;
+        if (student.exam_cnt == 0) {
+            *output << "This student has not taken any exam yet.\n";
+        } else {
+            for (int i = 0; i < student.exam_cnt; ++i) {
+                student.exam[i].print(*output);
             }
-            //print to file
-            for (int i = 1; i <= list.size(); i++) {
-                outFile << "******************************************************STUDENT " << i << "*******************************************************" << endl;
-                list.get(i, *stu);  
-                stu->print(outFile);
-
-
-                outFile << "--------------------------------------------------PAST EXAM RESULT:---------------------------------------------------" << endl;
-                //print exam result to file
-                if (stu->exam_cnt != 0) {
-                    for (int j = 0; j < stu->exam_cnt; j++) {
-                        stu->exam[j].print(outFile);
-                    }
-                }
-                else {
-                    outFile << "This student hasn't taken any exam yet !!!" << endl;;
-                }
-                outFile << "******************************************************STUDENT " << i << "*********************************************************" << endl;
-            }
-            cout << "Student list has been successfully saved to the file !!! " << endl;
-            delete stu;
-            
         }
     }
+
+    if (outputMethod == 2) cout << "Student list saved to student_result.txt.\n";
     return true;
 }
 
 bool InsertExamResult(const char* filename, List* list) {
-    ifstream inFile(filename);
-    char id[10];
+    if (list == NULL || list->empty()) {
+        cout << "Create the student list before importing exam results.\n";
+        return false;
+    }
 
-    if (!list->empty() && inFile.is_open()) {
-        while (!inFile.eof()) {
-            Exam exam;
+    ifstream input(filename);
+    if (!input.is_open()) {
+        cout << "Error opening file: " << filename << endl;
+        return false;
+    }
+
+    int inserted = 0;
+    char id[12];
+    int trimester, year, subjectCount;
+
+    while (input >> id >> trimester >> year >> subjectCount) {
+        Exam exam;
+        exam.trimester = trimester;
+        exam.year = year;
+        exam.numOfSubjects = subjectCount;
+
+        bool validRecord = subjectCount > 0 && subjectCount <= 6;
+
+        for (int i = 0; i < subjectCount; ++i) {
             Subject subject;
-            Student stu;
-            // read file from exam.txt 
-            inFile >> id;
-
-            Node* cur = list->head;
-            while (cur != NULL) {
-                if (strcmp(cur->item.id, id) == 0) {
-                    exam.numOfSubjects = 0;
-                    inFile >> exam.trimester 
-                           >> exam.year 
-                           >> exam.numOfSubjects;
-
-                    for (int j = 0; j < exam.numOfSubjects; j++) {
-                        inFile >> subject.subject_code 
-                               >> subject.subject_name;
-
-                        for (int k = 0; subject.subject_name[k] != '\0'; k++) {
-                            //check subject name and replace  symbols
-                            if (subject.subject_name[k] == '_') {
-                                subject.subject_name[k] = ' ';
-                            }
-                        }
-                        inFile >> subject.credit_hours 
-                               >> subject.marks;
-
-                        exam.sub[j] = subject;
-                    }
-                    //add the exam to the student's exam array 
-                    exam = cur->item.exam[cur->item.exam_cnt++];
-                    //calculate the GPA of them
-                    cur->item.exam[cur->item.exam_cnt - 1].gpa = exam.calculateGPA();
-                    break;
-                }
-                cur = cur->next;
-            }
-        }
-
-        Node* cur = list->head;
-        //calculate cgpa
-        while (cur != NULL) {
-            if (cur->item.exam_cnt > 0) {
-                cur->item.calculateCurrentCGPA();
-            }
-            cur = cur->next;
-        }
-
-        inFile.close();
-        return true;
-    }
-
-    return false;
-}
-
-bool PrintStatistic(List list)
-{
-    if (list.empty()) {
-        cout << "Error to the list as is empty, please try again !!!" << endl;
-        return false;
-    }
-    else {
-        
-        Node* cur = list.head;  
-        int totalStudents = list.size();
-        
-        
-        int csStudents = 0, iaStudents = 0, ibStudents = 0, cnStudents = 0, ctStudents = 0;
-        double totalCGPA = 0.0, totalSubjects = 0.0, avgSubjectsTaken = 0, totalCredits = 0.0, avgCreditsEarned = 0.0, current_cgpa = 0.0;
-        string course; // Course enrolled in by the student
-        
-
-        if (cur != NULL)
-            const Student& student = cur->item; // replace with function to get course
-        //calculate how mant student inside
-        if (course == "CS") {
-            csStudents++;
-        }
-        else if (course == "IA") {
-            iaStudents++;
-        }
-        else if (course == "IB") {
-            ibStudents++;
-        }
-        else if (course == "CN") {
-            cnStudents++;
-        }
-        else if (course == "CT") {
-            ctStudents++;
-        }
-        else {
-
-        }
-
-
-        totalCGPA += cur->item.current_cgpa;
-        totalSubjects = totalSubjects + (cur->item.exam->numOfSubjects / cur->item.exam_cnt);
-        totalSubjects = totalSubjects + (cur->item.totalCreditsEarned / cur->item.exam_cnt);
-        cur = cur->next;
-
-        // Calculating averages
-        double averageCGPA = totalCGPA / totalStudents;
-        double averageSubjects = static_cast<double> (totalSubjects) / totalStudents;
-        double averageCredits = static_cast<double> (totalCredits) / totalStudents;
-
-        //print statistics
-        cout << "Total Students: " << totalStudents << endl;
-        cout << "  CS Students - " << csStudents << endl;
-        cout << "  IA Students - " << iaStudents << endl;
-        cout << "  IB Students - " << ibStudents << endl;
-        cout << "  CN Students - " << cnStudents << endl;
-        cout << "  CT Students - " << ctStudents << endl;
-        cout << "Average CGPA: " << fixed << setprecision(5) << averageCGPA << endl;
-        cout << "  Average Subjects Taken Per Semester: " << fixed << setprecision(2) << averageSubjects << endl;
-        cout << "  Average Credits Earned Per Semester: " << fixed << setprecision(2) << averageCredits << endl;
-
-        return true;
-    }
-}
-
-bool FilterStudent(List list1, List* list2, char* course, int year, int totalcredit)
-{
-    Node* current = list1.head;
-    int yearEnrolled = 0;
-    int count = 0;
-
-    // Check list1 is empty ?
-    if (list1.empty()) {
-        cout << "The student list is empty now !!! Please create the list first ,TQ !!!" << endl;
-        return false;
-    }
-
-    // Check list2 is not empty ? Make sure is empty
-    if (!list2->empty()) {
-        cout << "Error about the List2 is not empty" << endl;
-        return false;
-    }
-    else {
-
-        for (int i = 1; i <= list1.size(); i++) {
-            int yearEnrolled = 0;
-            //check the item.id
-            if (current->item.id[0] >= '0' && current->item.id[0] <= '9' && current->item.id[1] >= '0' && current->item.id[1] <= '9') {
-                yearEnrolled = 2000 + ((current->item.id[0] - '0') * 10) + (current->item.id[1] - '0');
-            }
-            else {
-                yearEnrolled = 2000 + ((current->item.id[3] - '0') * 10) + (current->item.id[4] - '0');
+            if (!(input >> subject.subject_code >> subject.subject_name >> subject.credit_hours >> subject.marks)) {
+                cout << "Invalid exam record format.\n";
+                return false;
             }
 
-            // check if the current student meets the filtering criteria
-            if (strcmp(course, current->item.course) == 0 && year == yearEnrolled && current->item.totalCreditsEarned >= totalcredit) {
-                list2->insert(count, current->item); //insert that student into list2       
-                count++;
+            for (int j = 0; subject.subject_name[j] != '\0'; ++j) {
+                if (subject.subject_name[j] == '_') subject.subject_name[j] = ' ';
             }
-            current = current->next;
+
+            if (i < 6) exam.sub[i] = subject;
         }
 
-        return true;
-    }
-}
-
-bool UpdateIDandPhone(List* list) {
-    //check the list empty or not ?
-    if (list == NULL || list->empty())
-        return false;
-
-    else {
-        Node* cur;
-        string courseAndID;
-        cur = list->head;
-        
-        for (int i = 1; i <= list->size(); i++) {
-            // declaration of an array named courseTemp
-            // 12 represent the max. length of course code
-            // 4 is represent the min.length of course code
-            // 1 use for null terminator (cool things)
-            char courseTemp[12 + 4 + 1];
-            //add the B in front of course name after check
-            if (cur->item.id[0] != 'B') {
-                if (strcmp(cur->item.course, "CS") == 0) {
-                    strcpy(courseTemp, "BCS");
-                }
-
-                if (strcmp(cur->item.course, "IA") == 0) {
-                    strcpy(courseTemp, "BIA");
-                }
-
-                if (strcmp(cur->item.course, "IB") == 0) {
-                    strcpy(courseTemp, "BIB");
-                }
-
-                if (strcmp(cur->item.course, "CN") == 0) {
-                    strcpy(courseTemp, "BCN");
-                }
-
-                if (strcmp(cur->item.course, "CT") == 0) {
-                    strcpy(courseTemp, "BCT");
-                }
-
-                strcat(courseTemp, cur->item.id);
-                strcpy(cur->item.id, courseTemp);
-            }
-
-            // Update phone number 
-            char phone_no[10 + 3 + 1];
-            if (cur->item.phone_no[0] != '0') {
-                // check the first character of phoneNo is even or not ?
-                if ((cur->item.phone_no[0] % 2) == 0) {
-                    strcpy(phone_no, "02");
-                }
-                else {
-                    strcpy(phone_no, "01");
-                }
-
-                strcat(phone_no, cur->item.phone_no);
-                // terminate the new string with a null character
-                for (int j = 0; phone_no[j] != '\0'; j++) {
-                    if (phone_no[j] == '-') {
-                        for (int k = j; phone_no[k] != '\0'; k++) {
-                            phone_no[k] = phone_no[k + 1];
-                        }
-                        break;
-                    }
-                }
-                strcpy(cur->item.phone_no, phone_no);
-            }
-            cur = cur->next;
+        if (!validRecord) {
+            cout << "Skipped exam record for " << id << ": a trimester supports 1 to 6 subjects.\n";
+            continue;
         }
-        return true;
-    }
-}
 
-bool FindPotentialFirstClass(List list1, List* list2, char* course) {
-    Node* cur = list1.head;
-    //check is empty or not?
-    if (list1.empty()) {
-        cout << "There is no student in " << course << " that has potential to get first class." << endl;
-        return false;
-    }
-    // check if list 2 is not empty
-    if (!list2->empty()) {	// for safety warning
-        cout << "The list is not empty!" << endl << endl;
-        return false;
-    }
-    else {
-
-        Student* stu = new Student();
-        int stuNo = 0;
-        int cnt1, cnt2, credit;
-        // check if the student is in the specified course or not?
-        for (int i = 1; i <= list1.size(); ++i) {
-            list1.get(i, *stu);  // stu
-            if (strcmp(stu->course, course) == 0) {
-                cnt1 = 0;	// to count number of trimester GPA < 3.5
-                cnt2 = 0;	// to count number of trimester GPA >= 3.75
-
-                // only test for students who taken at least 3 exams
-                if (stu->exam_cnt >= 3) {
-
-                    // test every semester exam
-                    for (int j = 0; j < stu->exam_cnt; ++j) {
-
-                        // calculate total credit hours per semester
-                        credit = 0;
-                        for (int k = 0; k < stu->exam[j].numOfSubjects; ++k)
-                            credit += stu->exam[j].sub[k].credit_hours;
-
-                        // test gpa each semester exam
-                        if (stu->exam[j].gpa < 3.5)
-                            ++cnt1;
-                        else if (stu->exam[j].gpa >= 3.75 && credit >= 12)
-                            ++cnt2;
-                    }
-
-                    if (cnt1 > 0)
-                        continue;
-                    else if (cnt2 >= 3) {
-                        stuNo++;
-                        list2->insert(stuNo, *stu);		// Update the first class student into list2 for printing
-                    }
-                }
-            }
+        Node* studentNode = findStudentNode(list, id);
+        if (studentNode == NULL) {
+            cout << "Skipped exam record: student " << id << " was not found.\n";
+            continue;
         }
-        cur = cur->next;
-        delete stu;
-        return true;
-    }
-}
 
-int menu() {
-
-    int choice;
-
-        cout << "1. Create student list" << endl;
-        cout << "2. Delete Student" << endl;
-        cout << "3. Print student list" << endl;
-        cout << "4. Insert exam result" << endl;
-        cout << "5. Print Exam Static" << endl;
-        cout << "6. Filter Student" << endl;
-        cout << "7. Update Student's ID and Phone" << endl;
-        cout << "8. Find Potential First Class Student" << endl;
-        cout << "9. Exit" << endl;
-        cout << "------------------------------------------------------------------------------------------------------------------------" << endl;
-        cout << "Kindly enter your choice ( 1-9 ) : ";
-        cin >> choice;
-        
-        return choice;
-    
-}
-
-int main() {
-
-    List studentList;
-    const char* filename = "student.txt";
-    const char* examFilename = "exam.txt";
-
-    int select;
-    string selection;
-    do {
-        
-        select = menu();
-        system("cls");
-        
-        switch (select) {
-
-        case 1:
-        {
-            bool CreateStuList(const char* filename, List * list);
-
-            if (!CreateStuList(filename, &studentList)) {
-                cout << "Error to create student list !!!" << endl;
-                return 1;
-            }
-            cout << "Created Successfully !!!" << endl;
-            break;
+        Student& student = studentNode->item;
+        if (student.exam_cnt >= 10) {
+            cout << "Skipped " << id << ": maximum of 10 trimester records reached.\n";
+            continue;
         }
-        case 2:
-        {
-            char idToDelete[12];
-            cout << "Kindly enter the student ID of the student you want to delete: ";
-            cin >> idToDelete;
 
-            if (!DeleteStudent(&studentList, idToDelete)) {
-                cout << "Error to delete student list !!!" << endl;
-                return 1;
-            }
-            break;
-        }
-        case 3:
-        {
-            int n;
-            cout << "Kindly enter the method you want to print the list: ";
-            cin >> n;
-
-            if (!PrintList(studentList, n)) {
-                cout << "Error to print the list !!!" << endl;
-                return 1;
-            }
-            break;
-        }
-        case 4:
-        {
-            if (!InsertExamResult(const_cast<char*>(examFilename), &studentList)) {
-                cout << "Error to insert the exam results !!!" << endl;
-                return 1;
-            }
-            cout << "Inserted Successfully !!!" << endl;
-            break;
-        }
-        case 5:
-        {
-
-            if (!PrintStatistic(studentList)) {
-                cout << "Error to print exam statistics !!!" << endl;
-                return 1;
-            }
-            break;
-        }
-            
-        case 6:
-        {
-            {
-                char filterCourse[3];
-                int filterYear, filterTotalCredit;
-                cout << "Enter the course code (e.g., CS, IA, IB, CN, CT): ";
-                cin >> filterCourse;
-                cout << "Enter the enrollment year: ";
-                cin >> filterYear;
-                cout << "Enter the total credit hours earned: ";
-                cin >> filterTotalCredit;
-
-                List filteredStudents;
-                if (!FilterStudent(studentList, &filteredStudents, filterCourse, filterYear, filterTotalCredit)) {
-                    cout << "Error filtering students!" << endl;
-                    return 1;
-                }
-
-                cout << "Filtered students:" << endl;
-                if (!PrintList(filteredStudents, 1)) {
-                    cout << "Error printing filtered students!" << endl;
-                    return 1;
-                }
-
+        bool duplicateSemester = false;
+        for (int i = 0; i < student.exam_cnt; ++i) {
+            if (student.exam[i].trimester == trimester && student.exam[i].year == year) {
+                duplicateSemester = true;
                 break;
             }
         }
 
-        case 7:
-        {
-            if (!UpdateIDandPhone(&studentList)) {
-                cout << "Error to update student ID and phones !!! " << endl;
-                return 1;
-            }
-            cout << "Student ID and phones updated successfully !!!" << endl;
-
-            break;
+        if (duplicateSemester) {
+            cout << "Skipped duplicate exam record for " << id << ".\n";
+            continue;
         }
 
-        case 8:
-        {
-            char firstClassCourse[3];
-            cout << "Kindly enter course code (e.g., CS, IA, IB, CN, CT): ";
-            cin >> firstClassCourse;
+        student.exam[student.exam_cnt] = exam;
+        student.exam[student.exam_cnt].calculateGPA();
+        ++student.exam_cnt;
+        ++inserted;
+    }
 
-            List potentialFirstClassStudents;
-            if (!FindPotentialFirstClass(studentList, &potentialFirstClassStudents, firstClassCourse)) {
-                cout << "Error to find potential first class students !!!" << endl;
-                return 1;
-            }
+    for (Node* current = list->head; current != NULL; current = current->next) {
+        if (current->item.exam_cnt > 0) current->item.calculateCurrentCGPA();
+    }
 
-            cout << "Potential first class students in " << firstClassCourse << ":" << endl;
-            if (!PrintList(potentialFirstClassStudents, 1)) {
-                cout << "Error to print potential first class students !!!" << endl;
-                return 1;
-            }
-
-            break;
-        }
-        case 9:
-        {
-            cout << "Exiting..................................................................................." << endl;
-            return 0;
-            break;
-        }
-        default:
-        {
-            cout << "Invalid choice. Please try again !!!" << endl;
-            break;
-        }
-        }
-
-    
-
-
-        cout << "Do you want continue to operate ? (Y/N)" << endl;
-        cin >> selection;
-
-    } while (selection == "y" || selection == "Y");
-
-
-        
-    system("pause");
-    return 0;
+    cout << inserted << " exam record(s) inserted.\n";
+    return inserted > 0;
 }
 
+bool PrintStatistic(List& list) {
+    if (list.empty()) {
+        cout << "The student list is empty.\n";
+        return false;
+    }
 
+    int cs = 0, ia = 0, ib = 0, cn = 0, ct = 0;
+    int studentsWithExams = 0, totalSemesters = 0, totalSubjects = 0, totalCredits = 0;
+    double totalCGPA = 0.0;
 
+    for (Node* current = list.head; current != NULL; current = current->next) {
+        const Student& student = current->item;
+
+        if (strcmp(student.course, "CS") == 0) ++cs;
+        else if (strcmp(student.course, "IA") == 0) ++ia;
+        else if (strcmp(student.course, "IB") == 0) ++ib;
+        else if (strcmp(student.course, "CN") == 0) ++cn;
+        else if (strcmp(student.course, "CT") == 0) ++ct;
+
+        if (student.exam_cnt > 0) {
+            ++studentsWithExams;
+            totalCGPA += student.current_cgpa;
+            totalSemesters += student.exam_cnt;
+
+            for (int i = 0; i < student.exam_cnt; ++i) {
+                totalSubjects += student.exam[i].numOfSubjects;
+                totalCredits += semesterCredits(student.exam[i]);
+            }
+        }
+    }
+
+    cout << fixed << setprecision(2);
+    cout << "Total Students: " << list.size() << '\n';
+    cout << "  CS Students - " << cs << '\n';
+    cout << "  IA Students - " << ia << '\n';
+    cout << "  IB Students - " << ib << '\n';
+    cout << "  CN Students - " << cn << '\n';
+    cout << "  CT Students - " << ct << '\n';
+
+    if (studentsWithExams == 0) {
+        cout << "No exam results are available for statistics.\n";
+        return true;
+    }
+
+    cout << "Average CGPA: " << totalCGPA / studentsWithExams << '\n';
+    cout << "Average Subjects Taken Per Semester: " << static_cast<double>(totalSubjects) / totalSemesters << '\n';
+    cout << "Average Credits Earned Per Semester: " << static_cast<double>(totalCredits) / totalSemesters << '\n';
+    return true;
+}
+
+bool FilterStudent(List& source, List* destination, const char* course, int year, int totalCredit) {
+    if (source.empty()) {
+        cout << "Create the student list before filtering.\n";
+        return false;
+    }
+    if (!destination->empty()) {
+        cout << "The destination list must be empty.\n";
+        return false;
+    }
+
+    for (Node* current = source.head; current != NULL; current = current->next) {
+        const Student& student = current->item;
+        if (strcmp(course, student.course) == 0 && enrollmentYear(student.id) == year &&
+            student.totalCreditsEarned >= totalCredit) {
+            destination->insert(destination->size() + 1, student);
+        }
+    }
+
+    return true;
+}
+
+bool UpdateIDandPhone(List* list) {
+    if (list == NULL || list->empty()) {
+        cout << "The student list is empty.\n";
+        return false;
+    }
+
+    int updated = 0;
+    for (Node* current = list->head; current != NULL; current = current->next) {
+        Student& student = current->item;
+
+        if (student.id[0] != 'B') {
+            string course = student.course;
+            string newId = "B" + course + student.id;
+            if (newId.length() < sizeof(student.id)) {
+                copyText(student.id, newId);
+                ++updated;
+            } else {
+                cout << "Skipped ID update for " << student.name << ": ID would exceed the allowed size.\n";
+            }
+        }
+
+        if (student.phone_no[0] != '0') {
+            string digits;
+            for (size_t i = 0; student.phone_no[i] != '\0'; ++i) {
+                if (isdigit(static_cast<unsigned char>(student.phone_no[i]))) digits += student.phone_no[i];
+            }
+
+            if (!digits.empty()) {
+                string prefix = ((digits[0] - '0') % 2 == 0) ? "02" : "01";
+                string newPhone = prefix + digits;
+
+                if (newPhone.length() < sizeof(student.phone_no)) {
+                    copyText(student.phone_no, newPhone);
+                    ++updated;
+                } else {
+                    cout << "Skipped phone update for " << student.name << ": number would exceed the allowed size.\n";
+                }
+            }
+        }
+    }
+
+    cout << updated << " field(s) updated.\n";
+    return true;
+}
+
+bool FindPotentialFirstClass(List& source, List* destination, const char* course) {
+    if (source.empty()) {
+        cout << "The student list is empty.\n";
+        return false;
+    }
+    if (!destination->empty()) {
+        cout << "The destination list must be empty.\n";
+        return false;
+    }
+
+    for (Node* current = source.head; current != NULL; current = current->next) {
+        const Student& student = current->item;
+        if (strcmp(student.course, course) != 0 || student.exam_cnt < 3) continue;
+
+        int lowGPA = 0;
+        int strongSemester = 0;
+
+        for (int i = 0; i < student.exam_cnt; ++i) {
+            const Exam& exam = student.exam[i];
+            if (exam.gpa < 3.5) ++lowGPA;
+            if (exam.gpa >= 3.75 && semesterCredits(exam) >= 12) ++strongSemester;
+        }
+
+        if (lowGPA == 0 && strongSemester >= 3) {
+            destination->insert(destination->size() + 1, student);
+        }
+    }
+
+    return true;
+}
+
+int menu() {
+    int choice;
+    cout << "\n1. Create student list\n";
+    cout << "2. Delete student\n";
+    cout << "3. Print student list\n";
+    cout << "4. Insert exam result\n";
+    cout << "5. Print exam statistics\n";
+    cout << "6. Filter students\n";
+    cout << "7. Update student ID and phone\n";
+    cout << "8. Find potential first-class students\n";
+    cout << "9. Exit\n";
+    cout << "Enter your choice (1-9): ";
+    cin >> choice;
+    return choice;
+}
+
+int main() {
+    List studentList;
+    const char* studentFilename = "../Textfile/student.txt";
+    const char* examFilename = "../Textfile/exam.txt";
+    int selection;
+
+    do {
+        selection = menu();
+
+        switch (selection) {
+        case 1:
+            CreateStuList(studentFilename, &studentList);
+            break;
+
+        case 2: {
+            char id[12];
+            cout << "Enter the student ID to delete: ";
+            cin >> id;
+            DeleteStudent(&studentList, id);
+            break;
+        }
+
+        case 3: {
+            int outputMethod;
+            cout << "Enter 1 to print on screen or 2 to save to file: ";
+            cin >> outputMethod;
+            PrintList(studentList, outputMethod);
+            break;
+        }
+
+        case 4:
+            InsertExamResult(examFilename, &studentList);
+            break;
+
+        case 5:
+            PrintStatistic(studentList);
+            break;
+
+        case 6: {
+            char course[3];
+            int year, totalCredit;
+            cout << "Enter course code (CS, IA, IB, CN, or CT): ";
+            cin >> course;
+            cout << "Enter enrollment year: ";
+            cin >> year;
+            cout << "Enter minimum total credit hours: ";
+            cin >> totalCredit;
+
+            List filteredStudents;
+            if (FilterStudent(studentList, &filteredStudents, course, year, totalCredit)) {
+                if (filteredStudents.empty()) cout << "No students match the selected criteria.\n";
+                else PrintList(filteredStudents, 1);
+            }
+            break;
+        }
+
+        case 7:
+            UpdateIDandPhone(&studentList);
+            break;
+
+        case 8: {
+            char course[3];
+            cout << "Enter course code (CS, IA, IB, CN, or CT): ";
+            cin >> course;
+
+            List potentialStudents;
+            if (FindPotentialFirstClass(studentList, &potentialStudents, course)) {
+                if (potentialStudents.empty()) cout << "No potential first-class students found.\n";
+                else PrintList(potentialStudents, 1);
+            }
+            break;
+        }
+
+        case 9:
+            cout << "Exiting...\n";
+            break;
+
+        default:
+            cout << "Invalid choice. Please enter a number from 1 to 9.\n";
+            break;
+        }
+    } while (selection != 9);
+
+    return 0;
+}
