@@ -1,5 +1,3 @@
-# Student Management System
-
 A C++ Student Management System developed for a Data Structures and Algorithm assignment. The program uses a **Linked List** to store student records and supports student management, examination results, GPA/CGPA calculation, filtering, statistics, and student classification.
 
 ## Features
@@ -224,7 +222,3 @@ Option 9
   ↓
 Exit
 ```
-
-## Author
-
-Developed as a C++ Data Structures and Algorithm assignment.
