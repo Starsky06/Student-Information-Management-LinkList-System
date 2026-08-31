@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <fstream>
 #include <string>
 #include <cstring>
@@ -390,7 +390,7 @@ bool FindPotentialFirstClass(List& source, List* destination, const char* course
     if (!destination->empty()) {
         cout << "The destination list must be empty.\n";
         return false;
-    }
+    }    
 
     for (Node* current = source.head; current != NULL; current = current->next) {
         const Student& student = current->item;
@@ -431,8 +431,8 @@ int menu() {
 
 int main() {
     List studentList;
-    const char* studentFilename = "../Textfile/student.txt";
-    const char* examFilename = "../Textfile/exam.txt";
+    const char* studentFilename = "Textfile/student.txt";
+    const char* examFilename = "Textfile/exam.txt";
     int selection;
 
     do {
